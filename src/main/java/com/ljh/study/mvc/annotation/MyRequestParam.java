@@ -3,15 +3,14 @@ package com.ljh.study.mvc.annotation;
 import java.lang.annotation.*;
 
 /**
- * @description: 自定义Autowired注解
+ * @description: 自定义@RequestParam
  * @author: Jh Lee
- * @create: 2019-03-26 16:15
+ * @create: 2019-03-26 21:12
  **/
-
-@Target({ElementType.TYPE,ElementType.FIELD})
+@Target({ElementType.PARAMETER})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-public @interface MyAutowired {
+public @interface MyRequestParam {
 
     String value() default "";
 }

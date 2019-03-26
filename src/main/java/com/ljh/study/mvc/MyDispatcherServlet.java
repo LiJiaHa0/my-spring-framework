@@ -1,6 +1,7 @@
 package com.ljh.study.mvc;
 
 import com.ljh.study.mvc.annotation.MyController;
+import com.ljh.study.mvc.annotation.MyRequestMapping;
 import com.ljh.study.mvc.annotation.MyService;
 
 import javax.servlet.ServletConfig;
@@ -11,6 +12,8 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.*;
 
@@ -30,6 +33,9 @@ public class MyDispatcherServlet extends HttpServlet {
     //存储所有实例化后的bean
     private Map<String,Object> ioc = new HashMap<String,Object>();
 
+    //保存url和Method的对应关系
+    private Map<String, Method> handlerMapping = new HashMap<String,Method>();
+
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         this.doPost(req,resp);
@@ -37,7 +43,28 @@ public class MyDispatcherServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        super.doPost(req, resp);
+        try {
+            doDispatch(req,resp);
+        } catch (Exception e) {
+            e.printStackTrace();
+            resp.getWriter().write("500 Exception , Detail : " + Arrays.toString(e.getStackTrace()));
+        }
+    }
+
+    private void doDispatch(HttpServletRequest req, HttpServletResponse resp) throws Exception {
+        String url = req.getRequestURI();
+        String contextPath = req.getContextPath();
+        url = (url + contextPath).replaceAll("/+","/");
+        if(!this.handlerMapping.containsKey(url)){
+            resp.getWriter().write("404 Not Found !!!");
+            return;
+        }
+        Method method = this.handlerMapping.get(url);
+        String beanName = toLowerFirstCase(method.getDeclaringClass().getSimpleName());
+
+        Map<String,String[]> params = req.getParameterMap();
+        method.invoke(ioc.get(beanName),new Object[]{req,resp,params.get("name")[0]});
+
     }
 
     @Override
@@ -49,11 +76,78 @@ public class MyDispatcherServlet extends HttpServlet {
         //3、初始化IOC，实例化所有相关的类
         doInstance();
         //4、完成DI操作，依赖注入
-        
+        doAutowired();
         //5、初始化HandlerMapping(把我们自定义的注解)
+        initHandlerMapping();
+        //进行匹配URL对应的controller和method方法然后执行对应的方法。
         System.out.println("MyDispatcherServlet is init..");
     }
 
+    //初始化，把我们有controller注解和requestMapping修饰的类和方法的url组合起来，然后把对应的方法进去一个map中
+    private void initHandlerMapping() {
+        if(ioc.isEmpty()) return;
+        //遍历我们已经实例化好ioc容器
+        for (Map.Entry<String, Object> entry : ioc.entrySet()) {
+            //通过反射获取class对象
+            Class<?> clazz = entry.getValue().getClass();
+            //判断是否有controller修饰，没有就忽略跳过
+            if(!clazz.isAnnotationPresent(MyController.class)){continue;}
+            //保存controller默认的url或者自定义的url
+            String baseUrl = "";
+            //判断是否有RequestMapping修饰
+            if(clazz.isAnnotationPresent(MyRequestMapping.class)){
+                //有修饰则把url加上默认的路径或者是自定义的路径
+                MyRequestMapping myRequestMapping = clazz.getAnnotation(MyRequestMapping.class);
+                baseUrl = myRequestMapping.value();
+            }
+            //获取该类的全部public方法
+            for (Method method : clazz.getMethods()) {
+                //判断是否有RequestMapping修饰，没有则忽略
+                if(!method.isAnnotationPresent(MyRequestMapping.class)){continue;}
+                //有修饰时我们则需要把上面controller的url和我们的方法url拼接起来，并且存入我们handlerMapping中
+                MyRequestMapping myRequestMapping = method.getAnnotation(MyRequestMapping.class);
+                String url = ("/" + baseUrl + myRequestMapping.value()).replaceAll("/+", "/");
+                handlerMapping.put(url,method);
+                System.out.println("Mapped :" + url + "," + method);
+            }
+        }
+
+    }
+
+    //DI，把我们ioc容器中所有的到类中有Autowired修饰的属性赋值实例化
+    private void doAutowired() {
+        //对ioc容器判空
+        if(ioc.isEmpty()) return;
+        //遍历我们ioc的容器，拿到每个实例中的所有属性
+        for (Map.Entry<String, Object> entry : ioc.entrySet()) {
+            //通过反射获取到每个实例的全部属性（getDeclaredFields是获取全部属性，不管私有还有公有）
+            Field[] declaredFields = entry.getValue().getClass().getDeclaredFields();
+            for (Field field : declaredFields) {
+                //判断属性是否有MyRequestMapping修饰
+                if(!field.isAnnotationPresent(MyRequestMapping.class))continue;
+                //有修饰时，拿到这个修饰注解的值，用于判断用户是否有自定义的名字
+                MyRequestMapping annotation = field.getAnnotation(MyRequestMapping.class);
+                //获取annotation的value值
+                String beanName = annotation.value().trim();
+                //判断是否等于""，如果等于则用户没有自己家，不等于就是加了
+                if("".equals(annotation.value())){
+                    beanName = field.getType().getName();
+                }
+                //设置私有属性的访问属性
+                field.setAccessible(true);
+                try {
+                    //给属性实例化
+                    field.set(entry.getValue(),ioc.get(beanName));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    continue;
+                }
+            }
+        }
+
+    }
+
+    //IOC，把我们通过扫描包下面全部的类有我们MyController、MyService的注解修饰的类实例化，存入ioc容器中
     private void doInstance() {
         if(classNames.isEmpty()) return;
         //遍历类名集合
@@ -111,7 +205,7 @@ public class MyDispatcherServlet extends HttpServlet {
                 doScanner(scanPackage + "." + f.getName());
             }else{
                 //如果不是我们java的class文件时退出循环
-                if(f.getName().endsWith(".class"))continue;
+                if(!f.getName().endsWith(".class"))continue;
                 //获取我们的文件类名
                 String className = (scanPackage + "." + f.getName()).replace(".class", "");
                 //放入我们存储文件名的list集合中，放入内存中存储
@@ -120,7 +214,7 @@ public class MyDispatcherServlet extends HttpServlet {
         }
     }
 
-    //加载配置文件,
+    //加载配置文件，加载进我们的contextConfig对象中
     private void doLoadConfig(String contextConfigLocation) {
         //通过
         InputStream resourceAsStream = this.getClass().getClassLoader().getResourceAsStream(contextConfigLocation);
@@ -140,7 +234,7 @@ public class MyDispatcherServlet extends HttpServlet {
     }
 
     /**
-     * 把第一个字母转成大写
+     * 把第一个字母转成小写
      * @param name
      * @return
      */
