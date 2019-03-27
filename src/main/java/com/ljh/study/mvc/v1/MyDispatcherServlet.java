@@ -1,4 +1,4 @@
-package com.ljh.study.mvc;
+package com.ljh.study.mvc.v1;
 
 import com.ljh.study.mvc.annotation.MyController;
 import com.ljh.study.mvc.annotation.MyRequestMapping;
@@ -52,21 +52,29 @@ public class MyDispatcherServlet extends HttpServlet {
     }
 
     private void doDispatch(HttpServletRequest req, HttpServletResponse resp) throws Exception {
+        //获取请求url
         String url = req.getRequestURI();
+        //获取上下文url
         String contextPath = req.getContextPath();
+        //把请求url和上下文的url拼接为
         url = (url + contextPath).replaceAll("/+","/");
+        //如果在我们的handlerMapping中不存在此url，则404
         if(!this.handlerMapping.containsKey(url)){
             resp.getWriter().write("404 Not Found !!!");
             return;
         }
+        //通过url拿到对应的method方法
         Method method = this.handlerMapping.get(url);
+        //通过方法拿到方法对应中的类
         String beanName = toLowerFirstCase(method.getDeclaringClass().getSimpleName());
-
+        //从request中获取参数列表
         Map<String,String[]> params = req.getParameterMap();
+        //执行对应的方法
         method.invoke(ioc.get(beanName),new Object[]{req,resp,params.get("name")[0]});
 
     }
 
+    //自定义servlet初始化
     @Override
     public void init(ServletConfig config) throws ServletException {
         //1、加载配置文件,先获得在xml中配置的key为contextConfigLocation的value值，进行配置文件加载
@@ -214,11 +222,12 @@ public class MyDispatcherServlet extends HttpServlet {
         }
     }
 
-    //加载配置文件，加载进我们的contextConfig对象中
+    //加载配置文件，加载进我们的Properties对象中
     private void doLoadConfig(String contextConfigLocation) {
-        //通过
+        //加载这个资源
         InputStream resourceAsStream = this.getClass().getClassLoader().getResourceAsStream(contextConfigLocation);
         try {
+            //加载进我们的Properties的对象中
             contextConfig.load(resourceAsStream);
         } catch (IOException e) {
             e.printStackTrace();

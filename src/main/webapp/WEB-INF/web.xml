@@ -28,7 +28,7 @@
 
   <servlet>
     <servlet-name>DispatcherServlet</servlet-name>
-    <servlet-class>com.ljh.study.mvc.MyDispatcherServlet</servlet-class>
+    <servlet-class>com.ljh.study.mvc.v1.MyDispatcherServlet</servlet-class>
   <init-param>
     <param-name>contextConfigLocation</param-name>
     <param-value>application.properties</param-value>
